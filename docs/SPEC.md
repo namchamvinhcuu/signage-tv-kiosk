@@ -1,6 +1,10 @@
 # signage-tv-kiosk — spec for the implementing session
 
-Status: **scaffold only** (2026-10-22). `MainActivity` is a bare full-screen WebView. Everything below is still to build.
+Status: **R1–R14 implemented, not yet field-verified** (2026-10-22). Pure logic covered by JUnit
+(`./gradlew :app:testDebugUnitTest`). Deviations decided while implementing: R6 — `low_mem_mb = 0` only disables the
+MB threshold, the system `lowMemory` flag always triggers a restart after ≥20 min uptime (Nam); R3 — after an
+escalation restart, another escalation within 10 min of uptime becomes a 60 s recreate (no restart loop);
+`app_trim` — `TRIM_MEMORY_RUNNING_*` are not delivered since API 34, so every level except `UI_HIDDEN` is logged.
 Written by the `signage_nodejs_server` session that diagnosed the problem; that project's vault holds the full history:
 `projects-vault/YoungMin/Signage-Nodejs-Server/` — `Fix-History/2026-10-22-tv11-heap-viewer-media-release.md`,
 `Plan/tv-client-remote-log.md`, `Architecture/Current-State.md`.
@@ -55,7 +59,9 @@ unless a measured reason says otherwise).
 `{"event":"watchdog","data":{"kind":"app_<x>", "app":"<versionName>", ...}}`.
 Server: `signage_nodejs_server/server/utils/clientLog.js` — `event` must be in its whitelist (`watchdog` is);
 `data` max 20 fields, keys `^[A-Za-z_][A-Za-z0-9_]{0,31}$`, values string(≤300)/number/bool/null only (objects dropped);
-rate limit 60 req / 5 min per IP (the page itself also logs from the same IP — stay frugal). Send the WebView cookie
+body ≤ 8 KB (`MAX_BODY_CHARS`, `routes/checkin.js` `express.text({ limit: '8kb' })`);
+rate limit 60 req / 5 min per IP (the page itself also logs from the same IP — stay frugal) plus a server-wide cap of
+300 req / 5 min across all TVs. Send the WebView cookie
 (`CookieManager.getCookie(endpoint)`, read on the main thread) so the server resolves `user_id`/`user_name`.
 Logs land in `server/logs/client-YYYY-MM-DD.log` on the server (UTC days; VN = UTC+7). POST on a single background
 executor, 5 s timeouts, failures → local log only.
@@ -82,4 +88,4 @@ Suggested kinds: `app_start` (reason of previous restart, webview version, sdk, 
   git, see `.gitignore`) before installing on TVs — later updates must use the same key.
 - Install/update channel for 11 TVs: ADB over network (enable Developer options + network debugging on MiTV) vs USB
   sideload. Self-update is out of scope for v1 (all business logic stays in the web page, so APK updates are rare).
-- Harness for this project (CLAUDE.md, vault, reviewers) not set up yet — skill `setup-harness`.
+- Harness: set up (stack `android`: android-reviewer / android-test-writer; vault `projects-vault/YoungMin/Signage-TV-Kiosk`).

@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -21,11 +22,25 @@ android {
         buildConfig = true
     }
 
+    // Release key from <repo>/keystore.properties (never in git): storeFile, storePassword, keyAlias, keyPassword.
+    // Every TV update must be signed with this SAME key. Without the file the release APK is left unsigned.
+    val keystoreFile = rootProject.file("keystore.properties")
+    val keystoreProps = Properties().apply { if (keystoreFile.exists()) keystoreFile.inputStream().use { load(it) } }
+    if (keystoreFile.exists()) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // TODO(signing): dedicated release keystore before rollout — updates must keep the same key.
-            signingConfig = signingConfigs.getByName("debug")
+            if (keystoreFile.exists()) signingConfig = signingConfigs.getByName("release")
         }
     }
 

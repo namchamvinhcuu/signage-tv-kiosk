@@ -11,7 +11,7 @@ Trạng thái: **đã code đủ R1–R14, chưa thử thực địa trên TV**.
 
 ```bash
 ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
-./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk (tạm ký bằng debug key)
+./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk (ký bằng key trong keystore.properties)
 ./gradlew testDebugUnitTest
 ```
 
@@ -19,7 +19,7 @@ Cần JDK 17+ và Android SDK. Đường dẫn SDK đặt trong `local.propertie
 
 ## Cài lên TV (dự kiến)
 
-> ⚠ **Chưa được cài `app-release.apk` lên TV nào**: bản release hiện vẫn ký bằng debug key. TV đã cài bản ký debug thì không cập nhật tại chỗ lên bản ký bằng release key được (lệch chữ ký, phải gỡ app, mất cấu hình và cookie đăng nhập). Phải tạo keystore release riêng trước, không đưa vào git.
+> ⚠ **Chữ ký:** `app-release.apk` ký bằng key khai trong `keystore.properties` ở gốc repo (không đưa vào git; gồm `storeFile`, `storePassword`, `keyAlias`, `keyPassword`). Thiếu file này thì build ra `app-release-unsigned.apk`. Mọi bản cập nhật cho TV phải ký bằng ĐÚNG key đã cài lần đầu (lệch chữ ký ⇒ phải gỡ app, mất cấu hình và cookie đăng nhập). Kiểm: `apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk`. Không bao giờ cài `app-debug.apk` lên TV thật.
 
 ```bash
 adb connect <ip-tv>:5555

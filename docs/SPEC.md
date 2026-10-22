@@ -84,8 +84,9 @@ Suggested kinds: `app_start` (reason of previous restart, webview version, sdk, 
 
 ## 5. Open items
 
-- Release signing: the scaffold signs release with the machine's debug key. Create a dedicated keystore (kept out of
-  git, see `.gitignore`) before installing on TVs — later updates must use the same key.
+- Release signing: resolved 2026-10-22 — release is signed with Nam's key (alias `upload`, cert SHA-256
+  `2f7590e2…7fbd`) via the git-ignored `keystore.properties`; without it the release APK is unsigned. Later updates
+  must use the same key.
 - Install/update channel for 11 TVs: ADB over network (enable Developer options + network debugging on MiTV) vs USB
   sideload. Self-update is out of scope for v1 (all business logic stays in the web page, so APK updates are rare).
 - Harness: set up (stack `android`: android-reviewer / android-test-writer; vault `projects-vault/YoungMin/Signage-TV-Kiosk`).

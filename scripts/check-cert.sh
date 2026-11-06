@@ -3,7 +3,8 @@
 #   scripts/check-cert.sh <apk> <sha256>
 # CI (release.yml) runs it before publishing, so an APK signed with any other key never reaches a TV (the TVs would
 # refuse the update anyway, but only after downloading it). apksigner: $APKSIGNER, else the newest
-# $ANDROID_HOME/build-tools/*/apksigner.
+# $ANDROID_HOME/build-tools/*/apksigner. The output format is that of apksigner 34-36 ("Signer #1 certificate SHA-256
+# digest: …"); apksigner 37 prints "V2 Signer: certificate …" and fails here closed, so CI pins build-tools 35.0.0.
 set -euo pipefail
 
 apk="${1:?apk path}"

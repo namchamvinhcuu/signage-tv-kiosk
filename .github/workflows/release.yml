@@ -91,7 +91,8 @@ jobs:
           mkdir -p dist
           apk="dist/signage-kiosk-$CODE.apk"
           cp app/build/outputs/apk/release/app-release.apk "$apk"
-          scripts/check-cert.sh "$apk" "$CERT_SHA256"
+          # Pinned: apksigner 37 prints "V2 Signer: certificate …" instead of "Signer #1 certificate …" (run 42200647830).
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner" scripts/check-cert.sh "$apk" "$CERT_SHA256"
           scripts/make-version-file.sh "$apk" "$CODE" "$NAME" > dist/version.properties
           cat dist/version.properties
 

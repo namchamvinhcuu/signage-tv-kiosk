@@ -26,8 +26,14 @@ adb connect <ip-tv>:5555
 adb install -r app/build/outputs/apk/release/app-release.apk
 # Cho phép tự chạy khi bật TV (Android 10+ chặn mở activity từ nền nếu thiếu quyền này):
 adb shell appops set com.youngmin.signagekiosk SYSTEM_ALERT_WINDOW allow
+# Cho phép app tự cài bản cập nhật (không có quyền này app chỉ ghi log "no_install_permission"):
+adb shell appops set com.youngmin.signagekiosk REQUEST_INSTALL_PACKAGES allow
 # Mở app một lần sau khi cài (app chưa từng mở sẽ không nhận BOOT_COMPLETED), kèm cấu hình nếu cần:
 adb shell am start -n com.youngmin.signagekiosk/.MainActivity --es url 'http://192.168.0.254:13000/#checkin' --ei restart_min 240 --ei low_mem_mb 0
+# TV thử nghiệm nhận bản mới trước (mặc định là stable; off = tắt tự cập nhật); kiểm tra cập nhật ngay:
+adb shell am start -n com.youngmin.signagekiosk/.MainActivity --es update_channel canary --ez update_check_now true
 ```
+
+Tự cập nhật: app đọc `<máy chủ>/kiosk/<kênh>/version.properties` 2 phút sau khi mở và mỗi 30 phút; có bản mới thì tự tải, kiểm tra rồi cài, sau đó tự mở lại. Chỉ cài khi đã cấp CẢ HAI quyền ở trên. Chi tiết: `docs/SPEC.md` §3b.
 
 Trên TV: nút MENU hoặc bấm BACK 3 lần trong 2 giây để mở hộp cài đặt. Log cục bộ: `adb shell cat /sdcard/Android/data/com.youngmin.signagekiosk/files/kiosk.log`.

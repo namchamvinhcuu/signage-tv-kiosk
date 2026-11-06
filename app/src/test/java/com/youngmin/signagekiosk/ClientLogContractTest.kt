@@ -54,6 +54,38 @@ class ClientLogContractEndpointTest {
     }
 }
 
+class ClientLogContractOriginTest {
+
+    @Test
+    fun `origin keeps scheme host and port only`() {
+        assertEquals("http://192.168.0.254:13000", ClientLogContract.originOf("http://192.168.0.254:13000/#checkin"))
+        assertEquals("https://signage.example.com", ClientLogContract.originOf("https://signage.example.com/a/b.html?x=1#f"))
+        assertEquals("http://host", ClientLogContract.originOf("http://host"))
+        assertEquals("http://[::1]:8080", ClientLogContract.originOf("http://[::1]:8080/x"))
+    }
+
+    @Test
+    fun `origin drops userinfo lowercases the scheme and trims`() {
+        assertEquals("http://host:8080", ClientLogContract.originOf("  HTTP://user:secret@host:8080/p?token=secret \n"))
+    }
+
+    @Test
+    fun `origin has no trailing slash and endpoint is origin plus path`() {
+        for (url in listOf("http://h:1/", "https://h/x/y?z#w", "http://u@h:9/")) {
+            val origin = ClientLogContract.originOf(url)!!
+            assertFalse(origin.endsWith("/"))
+            assertEquals(origin + ClientLogContract.PATH, ClientLogContract.endpointFor(url))
+        }
+    }
+
+    @Test
+    fun `non http or hostless or garbage input gives null origin`() {
+        for (raw in listOf("ftp://host/", "javascript:alert(1)", "file:///sdcard/x.html", "", "   ", "not a url", "http:///x", "http://", "/checkin")) {
+            assertNull("expected null for '$raw'", ClientLogContract.originOf(raw))
+        }
+    }
+}
+
 class ClientLogContractRedactUrlTest {
 
     private fun assertNoSecrets(out: String?) {

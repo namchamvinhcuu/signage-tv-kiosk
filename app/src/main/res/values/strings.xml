@@ -6,6 +6,10 @@
     <string name="settings_url">Địa chỉ trang (http:// hoặc https://)</string>
     <string name="settings_restart_min">Khởi động lại định kỳ (phút; 0 = tắt; 15–1440)</string>
     <string name="settings_low_mem_mb">Ngưỡng bộ nhớ trống để khởi động lại (MB; 0 = tắt; 50–4096)</string>
+    <string name="settings_update_channel">Kênh cập nhật tự động</string>
+    <string name="settings_channel_stable">Ổn định (stable)</string>
+    <string name="settings_channel_canary">Thử nghiệm (canary) — nhận bản mới trước</string>
+    <string name="settings_channel_off">Tắt cập nhật tự động</string>
     <string name="settings_save">Lưu và tải lại</string>
     <string name="settings_exit">Thoát ứng dụng</string>
     <string name="settings_cancel">Hủy</string>

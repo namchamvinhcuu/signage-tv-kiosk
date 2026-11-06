@@ -125,4 +125,26 @@ class ConfigValidatorTest {
         assertEquals(4096, ConfigValidator.normalizeLowMemMb(4097))
         assertEquals(4096, ConfigValidator.normalizeLowMemMb(Int.MAX_VALUE))
     }
+
+    // --- updateChannel (stable | canary | off, default stable) ---
+
+    @Test
+    fun `default config follows the stable channel`() {
+        assertEquals(UpdateChannel.STABLE, KioskConfig.DEFAULT.updateChannel)
+        assertEquals(UpdateChannel.STABLE, KioskConfig("http://h/", 0, 0).updateChannel)
+    }
+
+    @Test
+    fun `channel is accepted case insensitive and trimmed`() {
+        assertEquals(UpdateChannel.STABLE, ConfigValidator.normalizeChannel("stable"))
+        assertEquals(UpdateChannel.CANARY, ConfigValidator.normalizeChannel(" Canary\n"))
+        assertEquals(UpdateChannel.OFF, ConfigValidator.normalizeChannel("OFF"))
+    }
+
+    @Test
+    fun `unknown blank and null channel is rejected`() {
+        for (raw in listOf(null, "", "  ", "beta", "stable,canary", "../stable", "none")) {
+            assertNull("expected rejection of $raw", ConfigValidator.normalizeChannel(raw))
+        }
+    }
 }

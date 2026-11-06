@@ -19,7 +19,10 @@ object ClientLogContract {
     private val KEY = Regex("^[A-Za-z_][A-Za-z0-9_]{0,31}$")
 
     /** `<scheme>://<host>[:port]/checkin/client-log` from the page URL, or null if it is not http/https. */
-    fun endpointFor(pageUrl: String): String? {
+    fun endpointFor(pageUrl: String): String? = originOf(pageUrl)?.plus(PATH)
+
+    /** `<scheme>://<host>[:port]` of an http/https URL, or null. Shared with the updater (same server). */
+    fun originOf(pageUrl: String): String? {
         val uri = try {
             URI(pageUrl.trim())
         } catch (e: URISyntaxException) {
@@ -30,7 +33,7 @@ object ClientLogContract {
         val host = uri.host
         if (host.isNullOrEmpty()) return null
         val port = if (uri.port == -1) "" else ":${uri.port}"
-        return "$scheme://$host$port$PATH"
+        return "$scheme://$host$port"
     }
 
     /**

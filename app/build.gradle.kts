@@ -14,8 +14,9 @@ android {
         applicationId = "com.youngmin.signagekiosk"
         minSdk = 26 // WebViewClient.onRenderProcessGone (API 26)
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes -PkioskVersionCode/-PkioskVersionName from the git tag (scripts/version-from-tag.sh).
+        versionCode = (findProperty("kioskVersionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("kioskVersionName") as String?) ?: "0.1.0"
     }
 
     buildFeatures {

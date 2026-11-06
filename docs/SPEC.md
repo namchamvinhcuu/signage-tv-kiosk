@@ -44,7 +44,7 @@ the critical parts are Android APIs anyway). Keep dependencies at zero beyond th
 | R7 | **Hang watchdog**: every 60 s `evaluateJavascript("1")`; 2 consecutive unanswered probes → recreate WebView (counts as a recovery for R3). Reset the counter on recreate. | |
 | R8 | **Main-frame load error** (`onReceivedError`, `request.isForMainFrame`) → log + retry load after 30 s (one pending retry at a time). | Server restarts / Wi-Fi drops. |
 | R9 | **Start on boot**: `BOOT_COMPLETED` receiver → start `MainActivity`. Android 10+ blocks background activity starts unless the app holds `SYSTEM_ALERT_WINDOW` → declare it and grant via `adb shell appops set com.youngmin.signagekiosk SYSTEM_ALERT_WINDOW allow`. Alternative to evaluate: make the app the HOME launcher. | Must be measured on a real MiTV (PatchWall may behave differently; MiTV "standby" may not fire BOOT_COMPLETED). |
-| R10 | **Configuration without touching code**: `url`, `restart_min`, `low_mem_mb` in SharedPreferences; settable via `adb shell am start -n com.youngmin.signagekiosk/.MainActivity --es url <url> --ei restart_min <n> --ei low_mem_mb <n>` (handle in `onCreate` and `onNewIntent`; `launchMode=singleTask`), and via an on-TV settings dialog. URL must be http/https with a host, else rejected. | |
+| R10 | **Configuration without touching code**: `url`, `restart_min`, `low_mem_mb` in SharedPreferences; settable via `adb shell am start -n com.youngmin.signagekiosk/.MainActivity --es url <url> --ei restart_min <n> --ei low_mem_mb <n>` (handle in `onCreate` and `onNewIntent`; `launchMode=singleTask`), and via an on-TV settings dialog. URL must be http/https with a host, else rejected. Since 2026-11: `update_channel` (`stable` default / `canary` / `off`, `--es update_channel canary`, radio buttons in the dialog). | |
 | R11 | **Remote keys**: BACK never leaves the page (the checkin page is a hash SPA; going back breaks it). MENU/SETTINGS key or BACK pressed 3× within 2 s → settings dialog (URL, restart_min, low_mem_mb; buttons Save+reload / Exit app / Cancel). User-visible strings in Vietnamese with diacritics. | Mi remotes may lack a MENU key — hence the triple-BACK gesture. |
 | R12 | **Logging — remote** (see §3) + **local** rotating file `getExternalFilesDir(null)/kiosk.log` (cap ~512 KB, rotate to `.1`), also logcat. Every caught exception is logged; never log cookies. | Local file is pullable: `adb shell cat /sdcard/Android/data/com.youngmin.signagekiosk/files/kiosk.log`. |
 | R13 | Append ` SignageKiosk/<versionName>` to the WebView user agent so server `page_start` logs (field `ua`) show which TVs run the app. | |
@@ -69,7 +69,22 @@ executor, 5 s timeouts, failures → local log only.
 Suggested kinds: `app_start` (reason of previous restart, webview version, sdk, model), `app_status` every 5 min
 (avail_mb, total_mb, low_mem, threshold_mb, own pss_mb, up_min, recoveries, config), `app_render_gone`,
 `app_recreate` (reason), `app_restart` (reason), `app_load_error`, `app_trim` (onTrimMemory ≥ RUNNING_LOW),
-`app_config`, `app_error`.
+`app_config`, `app_error`, `app_update` (self-update, `stage` = skip / download / verify_failed / download_failed /
+fetch_failed / commit / install_failed / result, plus `reason`, `code`, `channel`; identical consecutive outcomes are sent
+once per process).
+
+## 3b. Self-update (added 2026-11, plan `kiosk-boot-autoupdate` in the vault)
+
+The app reads `<origin of url>/kiosk/<channel>/version.properties` (keys `versionCode`, `versionName`, `apk` = bare file
+name in the same directory, `sha256` lowercase hex, `size` ≤ 20 MB) 2 min after start and every 30 min while in front
+(`--ez update_check_now true` skips only that wait). A newer versionCode is downloaded to the cache, checked (size,
+sha256, package name and versionCode inside the APK) and installed by a PackageInstaller session with
+`USER_ACTION_NOT_REQUIRED` (API 31+, needs `REQUEST_INSTALL_PACKAGES` granted + `UPDATE_PACKAGES_WITHOUT_USER_ACTION`
+declared). It never installs without the `SYSTEM_ALERT_WINDOW` appop (it could not reopen itself), while the settings
+dialog is open or a restart runs. `MY_PACKAGE_REPLACED` (`UpdateReplacedReceiver`) reopens `MainActivity`; the next
+`app_start` reports `start=update prev_reason=update_<code>`. Backoff: fetch errors none, install failure 6 h, verify
+failure 24 h for that versionCode only, pending user action (abandoned, never shown) 24 h. The files are published by CI
+(tag `vX.Y.Z` → GitHub prerelease) and mirrored onto the server by a cron script (`scripts/kiosk-pull.sh`).
 
 ## 4. Testing & verification
 
@@ -84,9 +99,11 @@ Suggested kinds: `app_start` (reason of previous restart, webview version, sdk, 
 
 ## 5. Open items
 
-- Release signing: resolved 2026-10-22 — release is signed with Nam's key (alias `upload`, cert SHA-256
-  `2f7590e2…7fbd`) via the git-ignored `keystore.properties`; without it the release APK is unsigned. Later updates
-  must use the same key.
+- Release signing: since 2026-11-06 a DEDICATED kiosk key (alias `signage-kiosk`, cert SHA-256
+  `ef91044e059be45ba86c5051f6efa216940c990c8c0ba15e9c7360710b9c8715`, PKCS12) via the git-ignored
+  `keystore.properties`; CI holds the same key in GitHub Secrets and refuses to publish an APK with another cert.
+  Every update must use this key. (Before: Nam's general upload key `2f7590e2…7fbd`, used only by the 0.1.0 APK on
+  tivi 7, which is reinstalled once with the new key.)
 - Install/update channel for 11 TVs: ADB over network (enable Developer options + network debugging on MiTV) vs USB
-  sideload. Self-update is out of scope for v1 (all business logic stays in the web page, so APK updates are rare).
+  sideload for the FIRST install; later versions arrive by self-update (§3b, decided 2026-11-06).
 - Harness: set up (stack `android`: android-reviewer / android-test-writer; vault `projects-vault/YoungMin/Signage-TV-Kiosk`).

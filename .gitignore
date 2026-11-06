@@ -9,7 +9,8 @@ captures/
 .cxx/
 *.keystore
 *.jks
-keystore.properties
+*.p12
+keystore.properties*
 .kotlin/
 .claude/
 .gemini/

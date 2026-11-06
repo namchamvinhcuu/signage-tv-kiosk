@@ -7,6 +7,11 @@
     <!-- R9: exempts BootReceiver's activity start from the Android 10+ background-start block.
          Granted per TV: adb shell appops set com.youngmin.signagekiosk SYSTEM_ALERT_WINDOW allow -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Self-update (plan kiosk-boot-autoupdate). Granted per TV:
+         adb shell appops set com.youngmin.signagekiosk REQUEST_INSTALL_PACKAGES allow -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- API 31+: lets the app update itself without a confirmation dialog (USER_ACTION_NOT_REQUIRED). -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <!-- Android TV: show in the Leanback launcher, no touchscreen needed. -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -49,5 +54,19 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Self-update: reopen after the new version is installed (system-sent, reaches non-exported). -->
+        <receiver
+            android:name=".UpdateReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Self-update: install session status, delivered through our own explicit PendingIntent. -->
+        <receiver
+            android:name=".UpdateResultReceiver"
+            android:exported="false" />
     </application>
 </manifest>

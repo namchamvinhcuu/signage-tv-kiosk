@@ -5,8 +5,13 @@ import java.net.URISyntaxException
 
 // Pure Kotlin (no android.* imports) so it runs in JVM unit tests.
 
-/** Runtime configuration (SPEC R10). */
-data class KioskConfig(val url: String, val restartMin: Int, val lowMemMb: Int) {
+/** Runtime configuration (SPEC R10). [updateChannel] picks `/kiosk/<channel>/` on the page's server. */
+data class KioskConfig(
+    val url: String,
+    val restartMin: Int,
+    val lowMemMb: Int,
+    val updateChannel: UpdateChannel = UpdateChannel.STABLE,
+) {
     companion object {
         const val DEFAULT_URL = "http://192.168.0.254:13000/"
         const val DEFAULT_RESTART_MIN = 240
@@ -42,6 +47,9 @@ object ConfigValidator {
 
     /** 0 = off; negative = rejected (null); otherwise clamped to 50..4096. */
     fun normalizeLowMemMb(n: Int): Int? = normalize(n, LOW_MEM_MB_LOW, LOW_MEM_MB_HIGH)
+
+    /** `stable` | `canary` | `off`, case-insensitive and trimmed; anything else → null (rejected). */
+    fun normalizeChannel(raw: String?): UpdateChannel? = UpdateChannel.fromWire(raw)
 
     private fun normalize(n: Int, low: Int, high: Int): Int? = when {
         n == 0 -> 0

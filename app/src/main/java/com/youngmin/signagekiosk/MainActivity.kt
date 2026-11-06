@@ -19,6 +19,7 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.KeyEvent
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
@@ -31,6 +32,9 @@ import android.webkit.WebViewClient
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.time.Instant
@@ -40,7 +44,7 @@ import java.time.Instant
  * restarts its own process periodically / on low memory / after repeated recoveries, logs locally + remotely.
  * All timers run on the main looper and only while the activity is started (foreground).
  */
-class MainActivity : Activity() {
+class MainActivity : Activity(), Updater.Host {
 
     private val handler = Handler(Looper.getMainLooper())
     private val recovery = RecoveryPolicy()
@@ -60,6 +64,19 @@ class MainActivity : Activity() {
     private var started = false
     /** Exit reason of the previous process (EscalationGuard). */
     private var prevExitReason: String? = null
+
+    private lateinit var updater: Updater
+    /** elapsedRealtime until which restartProcess waits, so it cannot race an install that is about to kill us. */
+    private var updatingUntilMs = 0L
+    private var checkNowPending = false
+    private var forceUserActionPending = false
+    private val updateTick = object : Runnable {
+        override fun run() {
+            if (!started) return
+            runUpdateCheck()
+            handler.postDelayed(this, UpdatePolicy.CHECK_INTERVAL_MS)
+        }
+    }
 
     private val watchdogTick = object : Runnable {
         override fun run() {
@@ -99,9 +116,13 @@ class MainActivity : Activity() {
         setContentView(root)
 
         logAppStart()
+        updater = Updater(this, store, this)
         // A system re-creation (savedInstanceState != null) replays the ORIGINAL launch intent, whose
         // extras may be older than a later settings-dialog change.
-        if (savedInstanceState == null) applyIntentConfig(intent, reload = false)
+        if (savedInstanceState == null) {
+            applyIntentConfig(intent, reload = false)
+            applyUpdateExtras(intent)
+        }
         // The WebView itself is built in onStart.
     }
 
@@ -109,6 +130,7 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         applyIntentConfig(intent, reload = true)
+        applyUpdateExtras(intent)
     }
 
     override fun onStart() {
@@ -120,12 +142,15 @@ class MainActivity : Activity() {
         hang.reset()
         handler.postDelayed(watchdogTick, WATCHDOG_MS)
         handler.postDelayed(statusTick, STATUS_MS)
+        reportUpdateResult()
+        handler.postDelayed(updateTick, if (checkNowPending) 0L else UpdatePolicy.CHECK_START_DELAY_MS)
     }
 
     override fun onStop() {
         started = false
         handler.removeCallbacks(watchdogTick)
         handler.removeCallbacks(statusTick)
+        handler.removeCallbacks(updateTick)
         webView?.onPause()
         super.onStop()
     }
@@ -141,6 +166,7 @@ class MainActivity : Activity() {
         settingsDialog?.dismiss()
         settingsDialog = null
         webView?.let { discardWebView(it) }
+        updater.close()
         remote.shutdown()
         super.onDestroy()
     }
@@ -208,14 +234,20 @@ class MainActivity : Activity() {
         webView?.let { discardWebView(it) }
         hang.reset()
         val action = recovery.onRecovery(SystemClock.elapsedRealtime())
-        if (action == RecoveryPolicy.Action.RESTART && EscalationGuard.restartAllowed(prevExitReason, uptimeMs())) {
-            restartProcess(EscalationGuard.ESCALATION_PREFIX + reason)
-            return
-        }
+        // A restart deferred by an update install falls through to the recreate below, so the screen is never left
+        // without a WebView if that install then fails.
+        val escalate = action == RecoveryPolicy.Action.RESTART && EscalationGuard.restartAllowed(prevExitReason, uptimeMs())
+        if (escalate && restartProcess(EscalationGuard.ESCALATION_PREFIX + reason)) return
         val suppressed = action == RecoveryPolicy.Action.RESTART
         remote.event(
             "app_recreate",
-            mapOf("reason" to reason, "recoveries" to recovery.total, "restart_suppressed" to suppressed),
+            mapOf(
+                "reason" to reason,
+                "recoveries" to recovery.total,
+                "restart_suppressed" to suppressed,
+                // Tells "held back by an update install" apart from "held back by EscalationGuard".
+                "deferred_by_update" to escalate,
+            ),
         )
         handler.postDelayed(recreateWebView, if (suppressed) SUPPRESSED_RECREATE_DELAY_MS else RECREATE_DELAY_MS)
     }
@@ -287,8 +319,14 @@ class MainActivity : Activity() {
 
     // ---- Process restart (R4) ------------------------------------------------------------------------
 
-    private fun restartProcess(reason: String, extra: Map<String, Any?> = emptyMap()) {
-        if (restarting) return
+    /** False when deferred by an update install (the caller must keep the screen alive itself). */
+    private fun restartProcess(reason: String, extra: Map<String, Any?> = emptyMap()): Boolean {
+        if (restarting) return true
+        if (SystemClock.elapsedRealtime() < updatingUntilMs) {
+            // The install is about to kill the process anyway; R5/R6 retry with the next watchdog tick.
+            KLog.i("restart ($reason) deferred: update install in progress")
+            return false
+        }
         restarting = true
         // The POST below dies with the process most of the time; the saved reason is logged on the next start.
         remote.event("app_restart", mapOf("reason" to reason, "up_min" to uptimeMs() / 60_000L, "recoveries" to recovery.total) + extra)
@@ -296,6 +334,7 @@ class MainActivity : Activity() {
         flushCookies()
         handler.removeCallbacksAndMessages(null)
         RestartActivity.trigger(this)
+        return true
     }
 
     private fun exitApp() {
@@ -320,7 +359,7 @@ class MainActivity : Activity() {
 
     private fun applyIntentConfig(intent: Intent?, reload: Boolean) {
         if (intent == null) return
-        val keys = listOf(EXTRA_URL, EXTRA_RESTART_MIN, EXTRA_LOW_MEM_MB).filter { intent.hasExtra(it) }
+        val keys = listOf(EXTRA_URL, EXTRA_RESTART_MIN, EXTRA_LOW_MEM_MB, EXTRA_UPDATE_CHANNEL).filter { intent.hasExtra(it) }
         if (keys.isEmpty()) return
         var next = config
         val rejected = mutableListOf<String>()
@@ -335,6 +374,10 @@ class MainActivity : Activity() {
         if (intent.hasExtra(EXTRA_LOW_MEM_MB)) {
             val n = intExtra(intent, EXTRA_LOW_MEM_MB)?.let(ConfigValidator::normalizeLowMemMb)
             if (n == null) rejected += EXTRA_LOW_MEM_MB else next = next.copy(lowMemMb = n)
+        }
+        if (intent.hasExtra(EXTRA_UPDATE_CHANNEL)) {
+            val ch = ConfigValidator.normalizeChannel(intent.getStringExtra(EXTRA_UPDATE_CHANNEL))
+            if (ch == null) rejected += EXTRA_UPDATE_CHANNEL else next = next.copy(updateChannel = ch)
         }
         // Consume the extras so a later re-delivery of this intent does not re-apply them.
         keys.forEach { intent.removeExtra(it) }
@@ -371,6 +414,7 @@ class MainActivity : Activity() {
                 "url" to ClientLogContract.redactUrl(next.url),
                 "restart_min" to next.restartMin,
                 "low_mem_mb" to next.lowMemMb,
+                "update_channel" to next.updateChannel.wire,
                 "url_changed" to urlChanged,
                 "rejected" to rejected.joinToString(",").ifEmpty { null },
             ),
@@ -415,6 +459,17 @@ class MainActivity : Activity() {
             setText(config.lowMemMb.toString())
             inputType = InputType.TYPE_CLASS_NUMBER
         }
+        // Radio buttons, not a text field: picking with the remote's D-pad needs no on-screen keyboard.
+        val channelButtons = mapOf(
+            UpdateChannel.STABLE to R.string.settings_channel_stable,
+            UpdateChannel.CANARY to R.string.settings_channel_canary,
+            UpdateChannel.OFF to R.string.settings_channel_off,
+        ).mapValues { (ch, res) -> RadioButton(this).apply { id = View.generateViewId(); setText(res); tag = ch } }
+        val channelGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            channelButtons.values.forEach { addView(it) }
+            check(channelButtons.getValue(config.updateChannel).id)
+        }
         val pad = (16 * resources.displayMetrics.density).toInt()
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -425,10 +480,13 @@ class MainActivity : Activity() {
             addView(restartInput)
             addView(label(R.string.settings_low_mem_mb))
             addView(lowMemInput)
+            addView(label(R.string.settings_update_channel))
+            addView(channelGroup)
         }
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle(R.string.settings_title)
-            .setView(form)
+            // Scrollable: four fields plus three radio buttons may not fit a 540 dp-high TV screen.
+            .setView(ScrollView(this).apply { addView(form) })
             .setPositiveButton(R.string.settings_save, null)
             .setNeutralButton(R.string.settings_exit) { _, _ -> exitApp() }
             .setNegativeButton(R.string.settings_cancel, null)
@@ -436,7 +494,9 @@ class MainActivity : Activity() {
         dialog.setOnShowListener {
             // Set here so an invalid value keeps the dialog open.
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                if (saveSettings(urlInput.text.toString(), restartInput.text.toString(), lowMemInput.text.toString())) {
+                val channel = channelGroup.findViewById<RadioButton>(channelGroup.checkedRadioButtonId)?.tag as UpdateChannel?
+                    ?: config.updateChannel
+                if (saveSettings(urlInput.text.toString(), restartInput.text.toString(), lowMemInput.text.toString(), channel)) {
                     dialog.dismiss()
                 }
             }
@@ -457,6 +517,7 @@ class MainActivity : Activity() {
             override fun afterTextChanged(s: Editable?) = rearm()
         }
         listOf(urlInput, restartInput, lowMemInput).forEach { it.addTextChangedListener(typing) }
+        channelGroup.setOnCheckedChangeListener { _, _ -> rearm() }
         dialog.setOnDismissListener {
             handler.removeCallbacks(dismissSettings)
             settingsDialog = null
@@ -470,7 +531,7 @@ class MainActivity : Activity() {
 
     private fun label(res: Int) = TextView(this).apply { setText(res) }
 
-    private fun saveSettings(urlText: String, restartText: String, lowMemText: String): Boolean {
+    private fun saveSettings(urlText: String, restartText: String, lowMemText: String, channel: UpdateChannel): Boolean {
         val url = ConfigValidator.validateUrl(urlText)
         if (url == null) {
             Toast.makeText(this, R.string.settings_invalid_url, Toast.LENGTH_LONG).show()
@@ -482,7 +543,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.settings_invalid_number, Toast.LENGTH_LONG).show()
             return false
         }
-        applyConfig(KioskConfig(url, restartMin, lowMemMb), "dialog", emptyList(), forceReload = true)
+        applyConfig(KioskConfig(url, restartMin, lowMemMb, channel), "dialog", emptyList(), forceReload = true)
         return true
     }
 
@@ -491,12 +552,15 @@ class MainActivity : Activity() {
     private fun logAppStart() {
         val prev = store.takeExitReason()
         prevExitReason = prev?.reason
-        val start = intent?.getStringExtra(EXTRA_START) ?: if (prev != null) "restart" else "launch"
+        // The install kills the old process without an exit reason; the pending code tells us it was an update.
+        val pendingUpdate = store.takePendingUpdateCode()
+        val info = AppStart.derive(intent?.getStringExtra(EXTRA_START), prev?.reason, pendingUpdate, BuildConfig.VERSION_CODE)
+        if (info.pendingNotInstalled) KLog.w("pending update $pendingUpdate not installed (running ${BuildConfig.VERSION_CODE})")
         remote.event(
             "app_start",
             mapOf(
-                "start" to start,
-                "prev_reason" to prev?.reason,
+                "start" to info.start,
+                "prev_reason" to info.prevReason,
                 "prev_at" to prev?.let { Instant.ofEpochMilli(it.atWallMs).toString() },
                 "webview" to WebView.getCurrentWebViewPackage()?.versionName,
                 "sdk" to Build.VERSION.SDK_INT,
@@ -505,8 +569,63 @@ class MainActivity : Activity() {
                 "url" to ClientLogContract.redactUrl(config.url),
                 "restart_min" to config.restartMin,
                 "low_mem_mb" to config.lowMemMb,
+                "version_code" to BuildConfig.VERSION_CODE,
+                "update_channel" to config.updateChannel.wire,
+                "install_perm" to packageManager.canRequestPackageInstalls(),
             ),
         )
+    }
+
+    /** The install result is written by UpdateResultReceiver, possibly in another process; report it once. */
+    private fun reportUpdateResult() {
+        val r = store.takeUpdateResult() ?: return
+        remote.event("app_update", mapOf("stage" to "result", "status" to r.status, "code" to r.code, "message" to r.message))
+    }
+
+    // ---- Self-update (plan kiosk-boot-autoupdate) ---------------------------------------------------
+
+    override fun updateGates() = UpdateGates(
+        canDrawOverlays = Settings.canDrawOverlays(this),
+        canRequestInstalls = packageManager.canRequestPackageInstalls(),
+        settingsOpen = settingsDialog?.isShowing == true,
+        restarting = restarting,
+        channelOff = config.updateChannel == UpdateChannel.OFF,
+    )
+
+    override fun logUpdate(stage: String, fields: Map<String, Any?>) {
+        remote.event("app_update", mapOf("stage" to stage) + fields)
+    }
+
+    override fun beforeInstall(code: Int) {
+        // The install kills this process: keep the login, and keep a periodic/low-memory restart from racing it.
+        flushCookies()
+        updatingUntilMs = SystemClock.elapsedRealtime() + UPDATING_BLOCK_MS
+        KLog.i("installing update $code; process restarts blocked for $UPDATING_BLOCK_MS ms")
+    }
+
+    override fun installFailed() {
+        updatingUntilMs = 0L
+    }
+
+    private fun runUpdateCheck() {
+        reportUpdateResult()
+        val force = forceUserActionPending
+        checkNowPending = false
+        forceUserActionPending = false
+        updater.check(config.url, config.updateChannel, force)
+    }
+
+    /** `--ez update_check_now true` skips only the 30-min cadence / 2-min start delay, never backoffs or gates (D11). */
+    private fun applyUpdateExtras(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_UPDATE_CHECK_NOW, false) != true) return
+        forceUserActionPending = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UPDATE_FORCE_USER_ACTION, false)
+        intent.removeExtra(EXTRA_UPDATE_CHECK_NOW)
+        intent.removeExtra(EXTRA_UPDATE_FORCE_USER_ACTION)
+        checkNowPending = true
+        if (started) {
+            handler.removeCallbacks(updateTick)
+            handler.post(updateTick)
+        }
     }
 
     private fun logStatus() {
@@ -541,6 +660,11 @@ class MainActivity : Activity() {
         const val EXTRA_URL = "url"
         const val EXTRA_RESTART_MIN = "restart_min"
         const val EXTRA_LOW_MEM_MB = "low_mem_mb"
+        const val EXTRA_UPDATE_CHANNEL = "update_channel"
+        const val EXTRA_UPDATE_CHECK_NOW = "update_check_now"
+        /** Debug builds only: forces USER_ACTION_REQUIRED to exercise the pending-user-action path. */
+        const val EXTRA_UPDATE_FORCE_USER_ACTION = "update_force_user_action"
+        private const val UPDATING_BLOCK_MS = 3 * 60_000L
         /** Why the activity was started ("boot" from BootReceiver); otherwise derived. */
         const val EXTRA_START = "start"
 

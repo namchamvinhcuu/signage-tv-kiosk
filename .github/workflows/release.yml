@@ -1,0 +1,116 @@
+# Tag vX.Y.Z -> signed APK published as a GitHub prerelease (canary). The ym-real cron (scripts/kiosk-pull.sh) mirrors
+# it into the signage server; `promote` makes a release the stable one. Plan kiosk-boot-autoupdate step 11.
+# Public repo: only a tag push triggers this (no pull_request*), the signing secrets live in the `release`
+# environment (required reviewer), third-party actions are pinned to commit SHAs.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Version from tag
+        id: ver
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          out="$(scripts/version-from-tag.sh "$TAG")"
+          read -r code name <<< "$out"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "versionCode $code, versionName $name"
+
+      - name: Android SDK (compileSdk 35)
+        run: |
+          if [[ ! -d "$ANDROID_HOME/platforms/android-35" || ! -d "$ANDROID_HOME/build-tools/35.0.0" ]]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+          fi
+
+      # gradlew runs this binary with the keystore on disk; a swapped jar (e.g. from a merged PR) must stop the run.
+      # Value = the committed jar (listed for Gradle 2.10 at services.gradle.org/versions/all); update it with the wrapper.
+      - name: Gradle wrapper checksum
+        run: echo "16caeaf66d57a0d1d2087fef6a97efa62de8da69afa5b908f40db35afc4342da  gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
+
+      # Tests run before the keystore exists, so test code never sees it.
+      - name: Unit tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      - name: Signing config
+        env:
+          KEYSTORE_B64: ${{ secrets.KIOSK_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.KIOSK_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KIOSK_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KIOSK_KEY_PASSWORD }}
+        run: |
+          umask 077
+          [[ -n "$KEYSTORE_B64" && -n "$STORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]] ||
+            { echo "signing secrets missing (environment 'release')"; exit 1; }
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/kiosk.p12"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/kiosk.p12" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+
+      - name: Build signed release
+        env:
+          CODE: ${{ steps.ver.outputs.code }}
+          NAME: ${{ steps.ver.outputs.name }}
+        run: ./gradlew --no-daemon :app:assembleRelease -PkioskVersionCode="$CODE" -PkioskVersionName="$NAME"
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f keystore.properties "$RUNNER_TEMP/kiosk.p12"
+
+      - name: Check certificate + package files
+        env:
+          CODE: ${{ steps.ver.outputs.code }}
+          NAME: ${{ steps.ver.outputs.name }}
+          CERT_SHA256: ${{ vars.KIOSK_CERT_SHA256 }}
+        run: |
+          mkdir -p dist
+          apk="dist/signage-kiosk-$CODE.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          scripts/check-cert.sh "$apk" "$CERT_SHA256"
+          scripts/make-version-file.sh "$apk" "$CODE" "$NAME" > dist/version.properties
+          cat dist/version.properties
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          # Draft first, then publish: kiosk-pull.sh ignores drafts, so it never sees a release without its files.
+          if state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "$state" != true ]]; then
+              echo "release $TAG is already published; refusing to replace its files"
+              exit 1
+            fi
+            gh release delete "$TAG" --yes < /dev/null
+          fi
+          gh release create "$TAG" --verify-tag --draft --prerelease --title "$TAG" \
+            --notes "Kiosk APK versionCode $CODE (canary). Promote with the promote workflow." < /dev/null
+          gh release upload "$TAG" "dist/signage-kiosk-$CODE.apk" dist/version.properties < /dev/null
+          gh release edit "$TAG" --draft=false < /dev/null

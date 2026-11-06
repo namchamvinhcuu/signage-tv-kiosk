@@ -36,4 +36,11 @@ adb shell am start -n com.youngmin.signagekiosk/.MainActivity --es update_channe
 
 Tự cập nhật: app đọc `<máy chủ>/kiosk/<kênh>/version.properties` 2 phút sau khi mở và mỗi 30 phút; có bản mới thì tự tải, kiểm tra rồi cài, sau đó tự mở lại. Chỉ cài khi đã cấp CẢ HAI quyền ở trên. Chi tiết: `docs/SPEC.md` §3b.
 
+## Phát hành bản mới
+
+1. Đẩy tag `vX.Y.Z` (Y, Z < 100; versionCode = X·10000 + Y·100 + Z): `git tag v0.2.1 && git push origin v0.2.1`.
+2. Workflow `release` (cần người duyệt của environment `release`) chạy test, build, ký, kiểm chứng chỉ (`scripts/check-cert.sh` so với biến `KIOSK_CERT_SHA256`) rồi tạo GitHub **prerelease** gồm `signage-kiosk-<code>.apk` + `version.properties` → kênh **canary**.
+3. Cron trên máy chủ (`scripts/kiosk-pull.sh`, mỗi 10 phút) chép về `server/public/kiosk/<kênh>/`; TV canary tự cài trong ≤ 30 phút.
+4. Chạy ổn thì Actions → `promote` → nhập tag → bản đó thành **stable** cho mọi TV.
+
 Trên TV: nút MENU hoặc bấm BACK 3 lần trong 2 giây để mở hộp cài đặt. Log cục bộ: `adb shell cat /sdcard/Android/data/com.youngmin.signagekiosk/files/kiosk.log`.

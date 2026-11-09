@@ -224,6 +224,91 @@ class EscalationGuardTest {
     }
 }
 
+class RefrontPolicyTest {
+
+    private val window = RefrontPolicy.WINDOW_MS
+
+    // Built from the constants MainActivity writes (restartProcess(reason.wire) / ESCALATION_PREFIX + reason), so a
+    // renamed wire keeps these cases meaningful; the literal check below catches a rename that would orphan old data.
+    private val appRestartReasons = listOf(
+        Reason.PERIODIC.wire,
+        Reason.LOW_MEMORY.wire,
+        EscalationGuard.ESCALATION_PREFIX + "render_gone",
+        EscalationGuard.ESCALATION_PREFIX + "hang",
+    )
+
+    // Named arguments on purpose: the 4th input is `restarting` (not `finishing`, review round 2), so a swap back to a
+    // finishing flag fails to compile here instead of silently changing what MainActivity has to pass.
+    private fun refront(prev: String?, sinceCreateMs: Long = 2_000, tried: Boolean = false, restarting: Boolean = false) =
+        RefrontPolicy.shouldRefront(
+            prevExitReason = prev,
+            sinceCreateMs = sinceCreateMs,
+            alreadyTried = tried,
+            restarting = restarting,
+        )
+
+    @Test
+    fun `window stays below the platform 10 s background-start grace period`() {
+        assertEquals(8_000L, RefrontPolicy.WINDOW_MS)
+        assertTrue(RefrontPolicy.WINDOW_MS < 10_000L)
+    }
+
+    @Test
+    fun `covered reasons are the literal wires MainActivity saves`() {
+        assertEquals(listOf("periodic", "low_memory", "escalation_render_gone", "escalation_hang"), appRestartReasons)
+    }
+
+    @Test
+    fun `app-initiated restart stopped inside the window brings itself back`() {
+        // tivi 7, 2026-11-07: periodic restart, stopped ~2 s after onCreate.
+        for (prev in appRestartReasons) assertTrue(prev, refront(prev))
+    }
+
+    @Test
+    fun `starts that the app did not initiate never refront`() {
+        // null = first start / boot / update install (no exit reason saved); update_<code> is an AppStart
+        // prevReason, never a saved exit reason, but must not count if it ever arrives here.
+        for (prev in listOf(null, "exit_by_user", "crash_RuntimeException", "crash_escalation_x", "update_201", "")) {
+            assertFalse("reason '$prev'", refront(prev))
+        }
+    }
+
+    @Test
+    fun `reasons that merely resemble a covered wire do not count`() {
+        for (prev in listOf("Periodic", "periodic ", "low_memory_x", "xperiodic", "Escalation_hang", "escalation")) {
+            assertFalse("reason '$prev'", refront(prev))
+        }
+    }
+
+    @Test
+    fun `window boundaries from onCreate`() {
+        for (prev in appRestartReasons) {
+            assertTrue("$prev at 0", refront(prev, sinceCreateMs = 0))
+            assertTrue("$prev at window-1", refront(prev, sinceCreateMs = window - 1))
+            assertFalse("$prev at window", refront(prev, sinceCreateMs = window))
+            assertFalse("$prev at window+1", refront(prev, sinceCreateMs = window + 1))
+            assertFalse("$prev long after", refront(prev, sinceCreateMs = 60 * MIN))
+        }
+    }
+
+    @Test
+    fun `negative elapsed time never refronts`() {
+        assertFalse(refront(Reason.PERIODIC.wire, sinceCreateMs = -1))
+        assertFalse(refront(Reason.PERIODIC.wire, sinceCreateMs = Long.MIN_VALUE))
+    }
+
+    @Test
+    fun `only one attempt per activity`() {
+        for (prev in appRestartReasons) assertFalse(prev, refront(prev, sinceCreateMs = 0, tried = true))
+    }
+
+    @Test
+    fun `restarting activity never refronts`() {
+        // restartProcess() sets `restarting` before RestartActivity.trigger; the new process must win, not this one.
+        for (prev in appRestartReasons) assertFalse(prev, refront(prev, sinceCreateMs = 0, restarting = true))
+    }
+}
+
 class HangDetectorTest {
 
     @Test

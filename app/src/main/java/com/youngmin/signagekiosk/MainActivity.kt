@@ -62,8 +62,12 @@ class MainActivity : Activity(), Updater.Host {
     private var restarting = false
     /** Between onStart and onStop. No WebView is built and no restart is started while stopped. */
     private var started = false
-    /** Exit reason of the previous process (EscalationGuard). */
+    /** Exit reason of the previous process (EscalationGuard, RefrontPolicy). */
     private var prevExitReason: String? = null
+    private var createdAtMs = 0L
+    private var refrontTried = false
+    /** elapsedRealtime of the self-start, 0 = none pending. */
+    private var refrontAtMs = 0L
 
     private lateinit var updater: Updater
     /** elapsedRealtime until which restartProcess waits, so it cannot race an install that is about to kill us. */
@@ -102,6 +106,7 @@ class MainActivity : Activity(), Updater.Host {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        createdAtMs = SystemClock.elapsedRealtime()
         KLog.init(this)
         store = ConfigStore(this)
         installCrashLogger(store)
@@ -144,6 +149,11 @@ class MainActivity : Activity(), Updater.Host {
         handler.postDelayed(statusTick, STATUS_MS)
         reportUpdateResult()
         handler.postDelayed(updateTick, if (checkNowPending) 0L else UpdatePolicy.CHECK_START_DELAY_MS)
+        if (refrontAtMs != 0L) {
+            // A blocked start returns normally, so this may also be a much later manual start: since_attempt_ms tells.
+            remote.event("app_refront", mapOf("stage" to "back", "since_attempt_ms" to SystemClock.elapsedRealtime() - refrontAtMs))
+            refrontAtMs = 0L
+        }
     }
 
     override fun onStop() {
@@ -153,6 +163,26 @@ class MainActivity : Activity(), Updater.Host {
         handler.removeCallbacks(updateTick)
         webView?.onPause()
         super.onStop()
+        refrontAfterRestart()
+    }
+
+    /** See [RefrontPolicy]: the launcher covered us right after a restart this app started itself. */
+    private fun refrontAfterRestart() {
+        val sinceCreateMs = SystemClock.elapsedRealtime() - createdAtMs
+        if (!RefrontPolicy.shouldRefront(prevExitReason, sinceCreateMs, refrontTried, restarting)) return
+        refrontTried = true
+        remote.event(
+            "app_refront",
+            mapOf("stage" to "attempt", "since_create_ms" to sinceCreateMs, "prev_reason" to prevExitReason, "finishing" to isFinishing),
+        )
+        try {
+            // No extras: onNewIntent applies nothing. A start blocked by the platform is dropped silently.
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            refrontAtMs = SystemClock.elapsedRealtime()
+        } catch (e: RuntimeException) {
+            KLog.e("refront start failed", e)
+            remote.event("app_error", mapOf("where" to "refront", "error" to e.javaClass.name, "msg" to e.message))
+        }
     }
 
     override fun onPause() {

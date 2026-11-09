@@ -62,6 +62,26 @@ object RestartPolicy {
 }
 
 /**
+ * After an app-initiated process restart the fresh activity can land behind the launcher (tivi 7, 2026-11-07:
+ * stopped 2 s after onStart, cause unproven). Inside the background-start grace period (an activity launched in
+ * this process < 10 s ago, no HOME press since) it may bring itself back once; a blocked start is a no-op.
+ * An activity the system finished itself counts too: the app only finishes while restarting or exiting, and both
+ * end the process before onStop.
+ */
+object RefrontPolicy {
+    /** Below the platform's 10 s grace period, measured from onCreate (which follows the launch). */
+    const val WINDOW_MS = 8_000L
+
+    /** [prevExitReason] = reason saved by the previous process; only restarts this app started itself count. */
+    fun shouldRefront(prevExitReason: String?, sinceCreateMs: Long, alreadyTried: Boolean, restarting: Boolean): Boolean {
+        if (alreadyTried || restarting || sinceCreateMs !in 0 until WINDOW_MS) return false
+        return prevExitReason == RestartPolicy.Reason.PERIODIC.wire ||
+            prevExitReason == RestartPolicy.Reason.LOW_MEMORY.wire ||
+            prevExitReason?.startsWith(EscalationGuard.ESCALATION_PREFIX) == true
+    }
+}
+
+/**
  * SPEC R7: the caller ticks every probe interval and sends `evaluateJavascript("1")` with the returned token;
  * [maxMissed] consecutive unanswered probes mean the page is hung. [reset] on every WebView recreate so a late
  * answer from the old WebView cannot clear the new one's state.

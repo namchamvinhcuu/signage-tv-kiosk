@@ -71,7 +71,10 @@ Suggested kinds: `app_start` (reason of previous restart, webview version, sdk, 
 `app_recreate` (reason), `app_restart` (reason), `app_load_error`, `app_trim` (onTrimMemory ≥ RUNNING_LOW),
 `app_config`, `app_error`, `app_update` (self-update, `stage` = skip / download / verify_failed / download_failed /
 fetch_failed / commit / install_failed / result, plus `reason`, `code`, `channel`; identical consecutive outcomes are sent
-once per process).
+once per process), `app_refront` (`stage` = attempt / back: the activity was stopped within 8 s of a self-initiated
+restart and started itself again — tivi 7, 2026-11-07, the R4 restart landed behind the launcher once; `attempt` carries
+`finishing` = the system had finished the activity, which then comes back as a new instance logging `app_start
+start=launch` instead of `back`; `back` carries `since_attempt_ms`, since a blocked start returns normally).
 
 ## 3b. Self-update (added 2026-11, plan `kiosk-boot-autoupdate` in the vault)
 

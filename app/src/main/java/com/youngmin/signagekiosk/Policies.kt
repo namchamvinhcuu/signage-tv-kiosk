@@ -82,6 +82,25 @@ object RefrontPolicy {
 }
 
 /**
+ * SPEC R15: a kiosk that lost the front (the customer opened YouTube / a browser with the remote) is only a cached
+ * background app: the OS kills it and nothing reopens it. [AWAY_MS] after MainActivity stopped, an alarm asks the app to
+ * bring itself back. It needs a lit screen (a TV put on standby by hand stays off) and the overlay appop (without it the
+ * platform drops a background activity start silently, as in BootReceiver).
+ */
+object FrontPolicy {
+    /** Nam, 2026-11-20: 5 min away from the front before the app reopens itself. */
+    const val AWAY_MS = 5 * 60_000L
+
+    enum class Decision(val wire: String) { START("start"), SCREEN_OFF("screen_off"), NO_OVERLAY("no_overlay") }
+
+    fun decide(interactive: Boolean, canOverlay: Boolean): Decision = when {
+        !interactive -> Decision.SCREEN_OFF
+        !canOverlay -> Decision.NO_OVERLAY
+        else -> Decision.START
+    }
+}
+
+/**
  * SPEC R7: the caller ticks every probe interval and sends `evaluateJavascript("1")` with the returned token;
  * [maxMissed] consecutive unanswered probes mean the page is hung. [reset] on every WebView recreate so a late
  * answer from the old WebView cannot clear the new one's state.

@@ -68,5 +68,10 @@
         <receiver
             android:name=".UpdateResultReceiver"
             android:exported="false" />
+
+        <!-- R15: AlarmManager target armed in MainActivity.onStop (our own PendingIntent, so non-exported is reachable). -->
+        <receiver
+            android:name=".FrontWatchReceiver"
+            android:exported="false" />
     </application>
 </manifest>

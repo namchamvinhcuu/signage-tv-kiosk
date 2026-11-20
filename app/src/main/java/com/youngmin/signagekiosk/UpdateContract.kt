@@ -198,7 +198,7 @@ data class AppStartInfo(val start: String, val prevReason: String?, val pendingN
 
 object AppStart {
     /**
-     * [extraStart] = EXTRA_START of the launching intent ("boot", "update"); [prevExitReason] = reason saved by the
+     * [extraStart] = EXTRA_START of the launching intent ("boot", "update", "front_watch"); [prevExitReason] = reason saved by the
      * previous process (restart, crash, exit); [pendingUpdateCode] = version the previous process was installing (0 =
      * none). The update wins over an exit reason: a restart racing a slow install must not hide the update.
      */

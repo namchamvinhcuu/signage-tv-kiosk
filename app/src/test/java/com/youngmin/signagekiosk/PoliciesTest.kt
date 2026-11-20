@@ -309,6 +309,61 @@ class RefrontPolicyTest {
     }
 }
 
+class FrontPolicyTest {
+
+    // Named arguments on purpose: both inputs are Boolean, so a positional swap would compile and flip the decision.
+    private fun decide(interactive: Boolean, canOverlay: Boolean) =
+        FrontPolicy.decide(interactive = interactive, canOverlay = canOverlay)
+
+    @Test
+    fun `away time is the literal 5 minutes`() {
+        assertEquals(300_000L, FrontPolicy.AWAY_MS)
+        assertEquals(5 * MIN, FrontPolicy.AWAY_MS)
+    }
+
+    @Test
+    fun `lit screen with the overlay appop starts the kiosk`() {
+        assertEquals(FrontPolicy.Decision.START, decide(interactive = true, canOverlay = true))
+    }
+
+    @Test
+    fun `lit screen without the overlay appop does not start`() {
+        // The platform would drop the background start silently; the alarm logs it instead.
+        assertEquals(FrontPolicy.Decision.NO_OVERLAY, decide(interactive = true, canOverlay = false))
+    }
+
+    @Test
+    fun `screen off never starts whatever the overlay appop says`() {
+        assertEquals(FrontPolicy.Decision.SCREEN_OFF, decide(interactive = false, canOverlay = true))
+    }
+
+    @Test
+    fun `screen off wins over a missing overlay appop`() {
+        assertEquals(FrontPolicy.Decision.SCREEN_OFF, decide(interactive = false, canOverlay = false))
+    }
+
+    @Test
+    fun `only the lit screen with overlay case starts`() {
+        val starts = listOf(true, false).flatMap { i -> listOf(true, false).map { o -> i to o } }
+            .filter { (i, o) -> decide(i, o) == FrontPolicy.Decision.START }
+        assertEquals(listOf(true to true), starts)
+    }
+
+    @Test
+    fun `decision wires are the literal log values`() {
+        assertEquals("start", FrontPolicy.Decision.START.wire)
+        assertEquals("screen_off", FrontPolicy.Decision.SCREEN_OFF.wire)
+        assertEquals("no_overlay", FrontPolicy.Decision.NO_OVERLAY.wire)
+        assertEquals(3, FrontPolicy.Decision.values().size)
+    }
+
+    @Test
+    fun `start extra wire is the literal front_watch`() {
+        // const val: inlined at compile time, no android class is loaded here.
+        assertEquals("front_watch", FrontWatch.START_WIRE)
+    }
+}
+
 class HangDetectorTest {
 
     @Test

@@ -142,6 +142,14 @@ class AppStartTest {
     }
 
     @Test
+    fun `front watch start is passed through and leaves prev reason and pending rules untouched`() {
+        assertEquals(AppStartInfo("front_watch", null, false), derive(extra = FrontWatch.START_WIRE))
+        assertEquals(AppStartInfo("front_watch", "periodic", false), derive(extra = "front_watch", prev = "periodic"))
+        assertEquals(AppStartInfo("front_watch", "update_201", false), derive(extra = "front_watch", prev = "x", pending = 201))
+        assertEquals(AppStartInfo("front_watch", null, true), derive(extra = "front_watch", pending = 202))
+    }
+
+    @Test
     fun `pending code that is not the running version is flagged not installed`() {
         assertEquals(AppStartInfo("launch", null, true), derive(pending = 202))
         assertEquals(AppStartInfo("restart", "periodic", true), derive(prev = "periodic", pending = 200))

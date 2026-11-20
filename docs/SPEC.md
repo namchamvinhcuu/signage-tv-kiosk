@@ -49,6 +49,7 @@ the critical parts are Android APIs anyway). Keep dependencies at zero beyond th
 | R12 | **Logging — remote** (see §3) + **local** rotating file `getExternalFilesDir(null)/kiosk.log` (cap ~512 KB, rotate to `.1`), also logcat. Every caught exception is logged; never log cookies. | Local file is pullable: `adb shell cat /sdcard/Android/data/com.youngmin.signagekiosk/files/kiosk.log`. |
 | R13 | Append ` SignageKiosk/<versionName>` to the WebView user agent so server `page_start` logs (field `ua`) show which TVs run the app. | |
 | R14 | Flush `CookieManager` on pause and after config changes so the TV stays logged in across restarts. | |
+| R15 | **Reopen after leaving the front** (added 2026-11-20): `MainActivity.onStop` arms an `AlarmManager.setAndAllowWhileIdle` alarm (type `ELAPSED_REALTIME`, not WAKEUP: a TV on standby is not woken every 5 min) `FrontPolicy.AWAY_MS` (5 min, Nam) ahead, `onStart` cancels it; the alarm survives the OS killing the cached process. 5 min is a floor: the platform may dispatch it later (about every minute normally, e.g. 15 min in low-power idle). When it fires, `FrontWatchReceiver` starts `MainActivity` (`EXTRA_START=front_watch`) only with a lit screen (`PowerManager.isInteractive`) and the overlay appop; otherwise it re-arms and retries every 5 min. No service, notification or new permission. | Why: tivi 7, 2026-11-20 — the customer opened YouTube and a browser with the remote, the OS killed the kiosk process (`has died: cch CAC`) and nothing reopened it. The customer's own use of another app for more than 5 min is pulled back too. UNVERIFIED on a MiTV until measured. |
 
 Image sharpness is a hard customer constraint: do not cap resolution / scale the page down (keep WebView defaults
 unless a measured reason says otherwise).
@@ -74,7 +75,10 @@ fetch_failed / commit / install_failed / result, plus `reason`, `code`, `channel
 once per process), `app_refront` (`stage` = attempt / back: the activity was stopped within 8 s of a self-initiated
 restart and started itself again — tivi 7, 2026-11-07, the R4 restart landed behind the launcher once; `attempt` carries
 `finishing` = the system had finished the activity, which then comes back as a new instance logging `app_start
-start=launch` instead of `back`; `back` carries `since_attempt_ms`, since a blocked start returns normally).
+start=launch` instead of `back`; `back` carries `since_attempt_ms`, since a blocked start returns normally),
+`app_front` (R15, `stage=back`, `since_away_ms`: the FrontWatch alarm brought the app back; `since_away_ms` is null when
+the process had been killed in between. A new process may log `app_start start=front_watch` or a plain `launch`/`restart`,
+depending on how the platform replays the launch intent for the surviving activity record — unverified on a MiTV).
 
 ## 3b. Self-update (added 2026-11, plan `kiosk-boot-autoupdate` in the vault)
 

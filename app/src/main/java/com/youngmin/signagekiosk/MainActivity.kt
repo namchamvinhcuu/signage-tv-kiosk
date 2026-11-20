@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.app.AlertDialog
 import android.content.ComponentCallbacks2
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -68,6 +69,8 @@ class MainActivity : Activity(), Updater.Host {
     private var refrontTried = false
     /** elapsedRealtime of the self-start, 0 = none pending. */
     private var refrontAtMs = 0L
+    /** elapsedRealtime of the last onStop (FrontWatch), 0 = never stopped in this process. */
+    private var stoppedAtMs = 0L
 
     private lateinit var updater: Updater
     /** elapsedRealtime until which restartProcess waits, so it cannot race an install that is about to kill us. */
@@ -134,6 +137,11 @@ class MainActivity : Activity(), Updater.Host {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // A live process brought back by the FrontWatch alarm; a new process reports it as app_start start=front_watch.
+        if (intent.getStringExtra(EXTRA_START) == FrontWatch.START_WIRE) {
+            val awayMs = if (stoppedAtMs == 0L) null else SystemClock.elapsedRealtime() - stoppedAtMs
+            remote.event("app_front", mapOf("stage" to "back", "since_away_ms" to awayMs))
+        }
         applyIntentConfig(intent, reload = true)
         applyUpdateExtras(intent)
     }
@@ -141,6 +149,8 @@ class MainActivity : Activity(), Updater.Host {
     override fun onStart() {
         super.onStart()
         started = true
+        FrontWatch.inFront = true
+        frontWatch("cancel", FrontWatch::cancel)
         webView?.onResume()
         // First start, or the renderer died / a recreate was pending while stopped.
         if (webView == null) createWebView()
@@ -158,12 +168,26 @@ class MainActivity : Activity(), Updater.Host {
 
     override fun onStop() {
         started = false
+        FrontWatch.inFront = false
+        stoppedAtMs = SystemClock.elapsedRealtime()
         handler.removeCallbacks(watchdogTick)
         handler.removeCallbacks(statusTick)
         handler.removeCallbacks(updateTick)
         webView?.onPause()
         super.onStop()
+        // See [FrontPolicy]: nothing else reopens the app once the OS has killed it in the background.
+        if (!restarting) frontWatch("arm", FrontWatch::arm)
         refrontAfterRestart()
+    }
+
+    /** Arms/cancels the FrontWatch alarm; a platform refusal is logged, never thrown into the lifecycle. */
+    private fun frontWatch(op: String, action: (Context) -> Unit) {
+        try {
+            action(this)
+        } catch (e: RuntimeException) {
+            KLog.e("front watch $op failed", e)
+            remote.event("app_error", mapOf("where" to "front_watch_$op", "error" to e.javaClass.name, "msg" to e.message))
+        }
     }
 
     /** See [RefrontPolicy]: the launcher covered us right after a restart this app started itself. */

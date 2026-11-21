@@ -149,6 +149,55 @@ class AppStartTest {
         assertEquals(AppStartInfo("front_watch", null, true), derive(extra = "front_watch", pending = 202))
     }
 
+    // Named arguments on purpose: frontWatchStart is a Boolean next to Ints/Strings, so position must not matter.
+    private fun deriveFw(extra: String? = null, prev: String? = null, pending: Int = 0, version: Int = 201) =
+        AppStart.derive(extra, prev, pending, version, frontWatchStart = true)
+
+    @Test
+    fun `front watch mark wins over a stale intent extra`() {
+        // Regression test for the app_start label bug: the platform replays the ORIGINAL launch intent (extra=update).
+        assertEquals("front_watch", deriveFw(extra = "update").start)
+        assertEquals("front_watch", deriveFw(extra = "boot").start)
+        assertEquals("front_watch", deriveFw(extra = null).start)
+        assertEquals("front_watch", deriveFw(extra = "front_watch").start)
+    }
+
+    @Test
+    fun `front watch mark wins over the derived update and restart labels`() {
+        assertEquals("front_watch", deriveFw(pending = 201).start)
+        assertEquals("front_watch", deriveFw(prev = "periodic").start)
+    }
+
+    @Test
+    fun `front watch mark leaves prev reason and pending rules untouched for each extra`() {
+        for (extra in listOf("update", "boot", null)) {
+            // updated: the pending code equals the running version -> prev reason update_<code>, not flagged
+            assertEquals(AppStartInfo("front_watch", "update_201", false), deriveFw(extra = extra, prev = "x", pending = 201))
+            // prev exit reason is kept when there is no pending update
+            assertEquals(AppStartInfo("front_watch", "periodic", false), deriveFw(extra = extra, prev = "periodic"))
+            // pending code that is not the running version -> flagged not installed
+            assertEquals(AppStartInfo("front_watch", null, true), deriveFw(extra = extra, pending = 202))
+            assertEquals(AppStartInfo("front_watch", "periodic", true), deriveFw(extra = extra, prev = "periodic", pending = 200))
+            // nothing at all
+            assertEquals(AppStartInfo("front_watch", null, false), deriveFw(extra = extra))
+        }
+    }
+
+    @Test
+    fun `front watch flag false keeps every existing label`() {
+        assertEquals(AppStartInfo("update", null, false), AppStart.derive("update", null, 0, 201, frontWatchStart = false))
+        assertEquals(AppStartInfo("boot", "x", false), AppStart.derive("boot", "x", 0, 201, frontWatchStart = false))
+        assertEquals(AppStartInfo("launch", null, false), AppStart.derive(null, null, 0, 201, frontWatchStart = false))
+        assertEquals(AppStartInfo("restart", "periodic", false), AppStart.derive(null, "periodic", 0, 201, frontWatchStart = false))
+        assertEquals(AppStartInfo("update", "update_201", false), AppStart.derive(null, null, 201, 201, frontWatchStart = false))
+        assertEquals(AppStartInfo("front_watch", null, false), AppStart.derive("front_watch", null, 0, 201, frontWatchStart = false))
+    }
+
+    @Test
+    fun `front watch flag defaults to false`() {
+        assertEquals(AppStart.derive("update", null, 0, 201, frontWatchStart = false), AppStart.derive("update", null, 0, 201))
+    }
+
     @Test
     fun `pending code that is not the running version is flagged not installed`() {
         assertEquals(AppStartInfo("launch", null, true), derive(pending = 202))

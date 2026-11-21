@@ -101,6 +101,32 @@ object FrontPolicy {
 }
 
 /**
+ * SPEC R15: the FrontWatch alarm runs in the SAME process that then hosts the activity (a killed kiosk is started by the
+ * alarm broadcast), so a process-local mark set just before `startActivity` tells [AppStart] that this start was the
+ * alarm's, even when the system re-creates the surviving activity record with its ORIGINAL launch intent (a stale
+ * EXTRA_START such as `update`). One main thread sets and takes it, so no locking.
+ */
+class FrontStartMark(private val windowMs: Long = WINDOW_MS) {
+    private var markedAtMs = NONE
+
+    fun mark(nowMs: Long) {
+        markedAtMs = nowMs
+    }
+
+    /** True once per [mark], and only while it is younger than the window: a later start must not inherit it. */
+    fun take(nowMs: Long): Boolean {
+        val at = markedAtMs
+        markedAtMs = NONE
+        return at != NONE && nowMs - at in 0..windowMs
+    }
+
+    companion object {
+        const val WINDOW_MS = 30_000L
+        private const val NONE = Long.MIN_VALUE
+    }
+}
+
+/**
  * SPEC R7: the caller ticks every probe interval and sends `evaluateJavascript("1")` with the returned token;
  * [maxMissed] consecutive unanswered probes mean the page is hung. [reset] on every WebView recreate so a late
  * answer from the old WebView cannot clear the new one's state.

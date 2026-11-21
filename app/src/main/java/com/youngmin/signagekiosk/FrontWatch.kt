@@ -12,12 +12,16 @@ import android.provider.Settings
 /**
  * SPEC R15: the alarm that reopens MainActivity after [FrontPolicy.AWAY_MS] away from the front. MainActivity.onStop
  * arms it, onStart cancels it. A system alarm survives the OS killing a cached process, so no service or notification
- * is needed; it does not survive a force-stop or a reboot (BootReceiver covers the reboot). Behaviour on MiTV (alarm
- * firing after a process kill, the background start under the overlay appop) is unmeasured.
+ * is needed; it does not survive a force-stop or a reboot (BootReceiver covers the reboot). Measured on tivi 7
+ * (2026-11-21): it fires after a process kill and the background start works under the overlay appop; the platform
+ * delivered it 6m38s and 8m45s after arming (inexact alarm, window ~3m45s).
  */
 object FrontWatch {
     /** Wire value of EXTRA_START for a start made by this alarm. */
     const val START_WIRE = "front_watch"
+
+    /** Set just before the alarm starts MainActivity; read by `logAppStart` so app_start reports [START_WIRE]. */
+    val startMark = FrontStartMark()
 
     /** True between onStart and onStop of THIS process: an alarm that fires inside that race does nothing. */
     @Volatile
@@ -49,6 +53,7 @@ object FrontWatch {
         }
         if (decision != FrontPolicy.Decision.START) return
         try {
+            startMark.mark(SystemClock.elapsedRealtime())
             context.startActivity(
                 Intent(context, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

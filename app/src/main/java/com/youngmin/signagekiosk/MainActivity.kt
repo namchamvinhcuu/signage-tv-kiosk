@@ -139,6 +139,7 @@ class MainActivity : Activity(), Updater.Host {
         setIntent(intent)
         // A live process brought back by the FrontWatch alarm; a new process reports it as app_start start=front_watch.
         if (intent.getStringExtra(EXTRA_START) == FrontWatch.START_WIRE) {
+            FrontWatch.startMark.take(SystemClock.elapsedRealtime()) // consumed here, not left for a later onCreate
             val awayMs = if (stoppedAtMs == 0L) null else SystemClock.elapsedRealtime() - stoppedAtMs
             remote.event("app_front", mapOf("stage" to "back", "since_away_ms" to awayMs))
         }
@@ -608,7 +609,13 @@ class MainActivity : Activity(), Updater.Host {
         prevExitReason = prev?.reason
         // The install kills the old process without an exit reason; the pending code tells us it was an update.
         val pendingUpdate = store.takePendingUpdateCode()
-        val info = AppStart.derive(intent?.getStringExtra(EXTRA_START), prev?.reason, pendingUpdate, BuildConfig.VERSION_CODE)
+        val info = AppStart.derive(
+            intent?.getStringExtra(EXTRA_START),
+            prev?.reason,
+            pendingUpdate,
+            BuildConfig.VERSION_CODE,
+            frontWatchStart = FrontWatch.startMark.take(SystemClock.elapsedRealtime()),
+        )
         if (info.pendingNotInstalled) KLog.w("pending update $pendingUpdate not installed (running ${BuildConfig.VERSION_CODE})")
         remote.event(
             "app_start",

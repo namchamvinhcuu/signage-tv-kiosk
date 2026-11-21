@@ -201,10 +201,18 @@ object AppStart {
      * [extraStart] = EXTRA_START of the launching intent ("boot", "update", "front_watch"); [prevExitReason] = reason saved by the
      * previous process (restart, crash, exit); [pendingUpdateCode] = version the previous process was installing (0 =
      * none). The update wins over an exit reason: a restart racing a slow install must not hide the update.
+     * [frontWatchStart] = the FrontWatch alarm started this process just before; it wins over [extraStart], which the
+     * platform replays STALE (the original launch intent, e.g. "update") when it re-creates a surviving activity record.
      */
-    fun derive(extraStart: String?, prevExitReason: String?, pendingUpdateCode: Int, versionCode: Int): AppStartInfo {
+    fun derive(
+        extraStart: String?,
+        prevExitReason: String?,
+        pendingUpdateCode: Int,
+        versionCode: Int,
+        frontWatchStart: Boolean = false,
+    ): AppStartInfo {
         val updated = pendingUpdateCode != 0 && pendingUpdateCode == versionCode
-        val start = extraStart ?: when {
+        val start = if (frontWatchStart) FrontWatch.START_WIRE else extraStart ?: when {
             updated -> "update"
             prevExitReason != null -> "restart"
             else -> "launch"

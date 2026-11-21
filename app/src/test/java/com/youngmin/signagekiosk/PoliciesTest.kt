@@ -364,6 +364,108 @@ class FrontPolicyTest {
     }
 }
 
+/** Regression tests for the app_start label bug: a FrontWatch restart was logged `start=update` (stale intent extra). */
+class FrontStartMarkTest {
+
+    private val window = FrontStartMark.WINDOW_MS
+
+    @Test
+    fun `window is the literal 30 seconds`() {
+        assertEquals(30_000L, FrontStartMark.WINDOW_MS)
+    }
+
+    @Test
+    fun `take without a mark is false`() {
+        assertFalse(FrontStartMark().take(nowMs = 1_000))
+    }
+
+    @Test
+    fun `take within the window after a mark is true`() {
+        val m = FrontStartMark()
+        m.mark(nowMs = 1_000)
+        assertTrue(m.take(nowMs = 1_000 + 5_000))
+    }
+
+    @Test
+    fun `a mark is single use`() {
+        val m = FrontStartMark()
+        m.mark(nowMs = 1_000)
+        assertTrue(m.take(nowMs = 2_000))
+        assertFalse(m.take(nowMs = 2_000))
+        assertFalse(m.take(nowMs = 3_000))
+    }
+
+    @Test
+    fun `take exactly at the window edge is true and one millisecond later is false`() {
+        val atEdge = FrontStartMark()
+        atEdge.mark(nowMs = 10_000)
+        assertTrue(atEdge.take(nowMs = 10_000 + window))
+
+        val pastEdge = FrontStartMark()
+        pastEdge.mark(nowMs = 10_000)
+        assertFalse(pastEdge.take(nowMs = 10_000 + window + 1))
+    }
+
+    @Test
+    fun `take in the same millisecond as the mark is true`() {
+        val m = FrontStartMark()
+        m.mark(nowMs = 10_000)
+        assertTrue(m.take(nowMs = 10_000))
+    }
+
+    @Test
+    fun `zero is a valid mark time`() {
+        // elapsedRealtime can be tiny right after boot; the sentinel for "no mark" must not collide with 0.
+        val m = FrontStartMark()
+        m.mark(nowMs = 0)
+        assertTrue(m.take(nowMs = 0))
+    }
+
+    @Test
+    fun `negative age from a clock reset is false`() {
+        val m = FrontStartMark()
+        m.mark(nowMs = 10_000)
+        assertFalse(m.take(nowMs = 9_999))
+    }
+
+    @Test
+    fun `a second mark replaces the first`() {
+        val m = FrontStartMark()
+        m.mark(nowMs = 1_000)
+        m.mark(nowMs = 100_000) // the first mark alone would be 99 s old by now
+        assertTrue(m.take(nowMs = 100_000 + 1_000))
+        assertFalse(m.take(nowMs = 100_000 + 1_000))
+    }
+
+    @Test
+    fun `a custom small window is honoured`() {
+        val within = FrontStartMark(windowMs = 100)
+        within.mark(nowMs = 1_000)
+        assertTrue(within.take(nowMs = 1_100))
+
+        val past = FrontStartMark(windowMs = 100)
+        past.mark(nowMs = 1_000)
+        assertFalse(past.take(nowMs = 1_101))
+    }
+
+    @Test
+    fun `a mark that was too old is consumed and does not survive for a later take`() {
+        val m = FrontStartMark()
+        m.mark(nowMs = 1_000)
+        assertFalse(m.take(nowMs = 1_000 + window + 1)) // stale: rejected ...
+        assertFalse(m.take(nowMs = 1_000 + window + 2)) // ... and gone, not kept for a later start
+        assertFalse(m.take(nowMs = 1_000)) // not even when the clock goes back inside the old window
+    }
+
+    @Test
+    fun `a negative age take also consumes the mark`() {
+        val m = FrontStartMark()
+        m.mark(nowMs = 10_000)
+        assertFalse(m.take(nowMs = 5_000))
+        assertFalse(m.take(nowMs = 10_000))
+    }
+}
+
 class HangDetectorTest {
 
     @Test

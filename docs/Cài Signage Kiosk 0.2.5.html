@@ -1,0 +1,177 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Cài Signage Kiosk 0.2.5</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one readable column, numbered steps on a left rail, TV menu paths set like on-screen breadcrumbs. */
+  :root {
+    --bg: #f6f7f5;
+    --surface: #ffffff;
+    --fg: #1d2421;
+    --muted: #5b6662;
+    --line: #dde2df;
+    --accent: #0d6e5c;
+    --accent-soft: #e2f1ec;
+    --warn: #9a5b00;
+    --warn-soft: #fbf0dc;
+    --font-display: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+    --font-body: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121715; --surface: #1a2120; --fg: #e4ebe8; --muted: #9aa8a3; --line: #2c3633;
+      --accent: #4fc2a6; --accent-soft: #163029; --warn: #e3a64a; --warn-soft: #2f2414;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121715; --surface: #1a2120; --fg: #e4ebe8; --muted: #9aa8a3; --line: #2c3633;
+    --accent: #4fc2a6; --accent-soft: #163029; --warn: #e3a64a; --warn-soft: #2f2414;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font-body); font-size: 16px; line-height: 1.6;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 32px 56px;
+  }
+  main { max-width: 44rem; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  header { display: flex; flex-direction: column; gap: 6px; }
+  .eyebrow { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 28px; line-height: 1.25; margin: 0; text-wrap: balance; font-weight: 700; }
+  h2 { font-size: 19px; margin: 0; text-wrap: balance; font-weight: 600; }
+  p { margin: 0; }
+  .lead { color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--muted); }
+  .meta b { color: var(--fg); font-weight: 600; }
+
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; counter-reset: s; }
+  .step { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 16px; padding-block: 18px; border-top: 1px solid var(--line); }
+  .step:last-child { border-bottom: 1px solid var(--line); }
+  .num {
+    width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 15px; }
+  .path span { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; }
+  .path i { font-style: normal; color: var(--muted); }
+
+  .link { display: flex; flex-direction: column; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .link .label { font-size: 13px; color: var(--muted); }
+  .link .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .link code { font-family: var(--font-mono); font-size: 14px; overflow-wrap: anywhere; flex: 1 1 18rem; min-width: 0; }
+  button {
+    font: inherit; font-size: 14px; font-weight: 500; color: var(--accent); background: var(--accent-soft);
+    border: 1px solid transparent; border-radius: 8px; padding: 4px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .note { background: var(--warn-soft); color: var(--fg); border-left: 3px solid var(--warn); border-radius: 0 8px 8px 0; padding: 10px 14px; font-size: 15px; }
+  .note b { color: var(--warn); }
+  ul.plain { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+  section.extra { display: flex; flex-direction: column; gap: 12px; }
+  footer { font-size: 14px; color: var(--muted); }
+</style>
+
+<main>
+  <header>
+    <span class="eyebrow">Hướng dẫn cài đặt · tivi 7</span>
+    <h1>Cài ứng dụng Signage Kiosk 0.2.5</h1>
+    <p class="lead">Bản 0.2.5 tự quay lại màn hình nếu bị che quá 5 phút, ghi nhật ký lúc khởi động đầy đủ hơn, và ứng dụng tự cập nhật các bản sau. Chỉ cần cài tay một lần này, mất khoảng 10 phút.</p>
+    <div class="meta"><span>TV: <b>tivi 7</b></span><span>Phiên bản: <b>0.2.5</b></span><span>Dung lượng: <b>684 KB</b></span></div>
+  </header>
+
+  <ol class="steps">
+    <li class="step">
+      <div class="num">1</div>
+      <div class="body">
+        <h2>Xem bản đang cài trên TV</h2>
+        <div class="path"><span>Cài đặt</span><i>›</i><span>Ứng dụng</span><i>›</i><span>Signage Kiosk</span></div>
+        <p>Dòng phiên bản hiện ở đầu trang thông tin ứng dụng.</p>
+        <p class="note"><b>Đang là 0.2.2 trở lên:</b> bỏ qua việc gỡ, cài đè trực tiếp ở bước 2. Các bản này cùng chữ ký nên TV giữ nguyên đăng nhập và quyền đã cấp.<br><b>Đang là 0.1.0:</b> phải gỡ ứng dụng cũ trước (<span class="path"><span>Gỡ cài đặt</span></span>). Bản 0.1.0 dùng chữ ký khác, nếu cài đè TV sẽ báo “Ứng dụng chưa được cài đặt”.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <div class="num">2</div>
+      <div class="body">
+        <h2>Tải và cài file mới</h2>
+        <p>Mở link bằng trình duyệt hoặc trình quản lý file trên TV, tải về rồi bấm vào file để cài. Nên dùng link mạng nội bộ; nếu TV không vào được thì dùng link Internet, tải bằng máy tính rồi chép qua USB.</p>
+        <div class="link">
+          <span class="label">Mạng nội bộ nhà máy (nên dùng)</span>
+          <div class="row"><code id="lan">http://192.168.0.254:13000/kiosk/stable/signage-kiosk-205.apk</code><button type="button" data-copy="lan">Sao chép</button></div>
+        </div>
+        <div class="link">
+          <span class="label">Internet</span>
+          <div class="row"><code id="gh">https://github.com/namchamvinhcuu/signage-tv-kiosk/releases/download/v0.2.5/signage-kiosk-205.apk</code><button type="button" data-copy="gh">Sao chép</button></div>
+        </div>
+        <p class="lead">Nếu TV hỏi có cho phép cài ứng dụng từ nguồn này không, chọn <b>Cho phép</b> cho trình duyệt hoặc trình quản lý file đang dùng.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <div class="num">3</div>
+      <div class="body">
+        <h2>Mở ứng dụng và đăng nhập lại</h2>
+        <p>Mở <b>Signage Kiosk</b>. Nếu màn hình hiện trang đăng nhập (thường gặp khi vừa gỡ ứng dụng cũ), đăng nhập lại bằng tài khoản <b>tivi 7</b> như trước. Nếu cài đè mà không bị hỏi đăng nhập thì bỏ qua.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <div class="num">4</div>
+      <div class="body">
+        <h2>Cho phép cài ứng dụng không rõ nguồn</h2>
+        <p>Để ứng dụng tự cập nhật các bản sau. Nếu thiếu quyền này, ứng dụng thấy có bản mới nhưng không tự cài được.</p>
+        <div class="path"><span>Cài đặt</span><i>›</i><span>Quyền riêng tư</span><i>›</i><span>Bảo mật &amp; hạn chế</span><i>›</i><span>Nguồn không xác định</span><i>›</i><span>Signage Kiosk: Bật</span></div>
+      </div>
+    </li>
+
+    <li class="step">
+      <div class="num">5</div>
+      <div class="body">
+        <h2>Cho phép hiển thị trên ứng dụng khác</h2>
+        <p>Để ứng dụng tự mở khi bật TV và tự quay lại màn hình nếu bị che.</p>
+        <div class="path"><span>Cài đặt</span><i>›</i><span>Ứng dụng</span><i>›</i><span>Quyền truy cập đặc biệt</span><i>›</i><span>Hiển thị trên ứng dụng khác</span><i>›</i><span>Signage Kiosk: Cho phép</span></div>
+      </div>
+    </li>
+
+    <li class="step">
+      <div class="num">6</div>
+      <div class="body">
+        <h2>Tắt ứng dụng rồi mở lại</h2>
+        <p>Sau khi cấp quyền, thoát ứng dụng và mở lại một lần rồi báo cho chúng tôi. Chúng tôi sẽ kiểm tra từ xa xem tivi 7 đã chạy đúng bản 0.2.5 và đã nhận đủ hai quyền chưa. Anh/chị không cần tự kiểm tra.</p>
+      </div>
+    </li>
+  </ol>
+
+  <section class="extra">
+    <h2>Nếu không tìm thấy mục ở bước 4 hoặc 5</h2>
+    <p>Tên menu có thể khác một chút tùy đời TV. Nếu tìm mãi không thấy, xin bật chế độ gỡ lỗi qua mạng để chúng tôi cấp quyền từ xa:</p>
+    <ul class="plain">
+      <li><span class="path"><span>Cài đặt</span><i>›</i><span>Tùy chọn thiết bị</span><i>›</i><span>Giới thiệu</span></span> rồi bấm vào dòng <b>Bản dựng</b> 7 lần liên tiếp.</li>
+      <li>Quay lại, vào <b>Tùy chọn nhà phát triển</b>, bật <b>Gỡ lỗi USB</b> và <b>Gỡ lỗi qua mạng</b>.</li>
+      <li>Báo cho chúng tôi. Khi TV hiện hỏi “Cho phép gỡ lỗi?”, chọn <b>Cho phép</b>.</li>
+    </ul>
+  </section>
+
+  <footer>Mọi thắc mắc trong lúc cài, xin liên hệ người phụ trách dự án bên chúng tôi.</footer>
+</main>
+
+<script>
+  document.querySelectorAll("button[data-copy]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var el = document.getElementById(btn.getAttribute("data-copy"));
+      var done = function () { btn.textContent = "Đã sao chép"; setTimeout(function () { btn.textContent = "Sao chép"; }, 1800); };
+      var select = function () { var r = document.createRange(); r.selectNodeContents(el); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(el.textContent).then(done, select);
+      } else { select(); }
+    });
+  });
+</script>
+
+</body></html>

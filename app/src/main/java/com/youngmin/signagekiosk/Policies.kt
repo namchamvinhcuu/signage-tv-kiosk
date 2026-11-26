@@ -101,6 +101,21 @@ object FrontPolicy {
 }
 
 /**
+ * SPEC R9 fallback: decision of [KioskStartService]. The system (re)connects an enabled accessibility service not only
+ * at boot but after any process death (operator "exit", periodic restart, OS kill, self-update). Only a connect shortly
+ * after the DEVICE booted, while the kiosk is not already in front, may open it; every other connect leaves the kiosk
+ * alone, so an "exit" stays an exit and the restart/update machinery keeps its own labels and timing.
+ */
+object BootStartPolicy {
+    /** Device uptime below which a connect counts as "just booted": room for a slow boot, below a normal restart. */
+    const val BOOT_WINDOW_MS = 5 * 60_000L
+
+    /** [deviceUptimeMs] is the time since DEVICE boot (SystemClock.elapsedRealtime), not since process start. */
+    fun shouldStart(deviceUptimeMs: Long, kioskInFront: Boolean): Boolean =
+        deviceUptimeMs in 0 until BOOT_WINDOW_MS && !kioskInFront
+}
+
+/**
  * SPEC R15: the FrontWatch alarm runs in the SAME process that then hosts the activity (a killed kiosk is started by the
  * alarm broadcast), so a process-local mark set just before `startActivity` tells [AppStart] that this start was the
  * alarm's, even when the system re-creates the surviving activity record with its ORIGINAL launch intent (a stale

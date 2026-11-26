@@ -640,3 +640,68 @@ class RateLimiterTest {
         assertTrue(r.tryAcquire(5 * MIN))
     }
 }
+
+/**
+ * Pure decision of KioskStartService: start the kiosk only on a connect shortly after DEVICE boot while the kiosk is
+ * not in front. A reconnect after a process death (operator exit, periodic restart, OS kill, self-update) happens at a
+ * large device uptime and must NOT start it.
+ */
+class BootStartPolicyTest {
+
+    private val window = BootStartPolicy.BOOT_WINDOW_MS
+
+    // Named arguments on purpose: the 2nd input is a Boolean, so the call reads as the decision it makes.
+    private fun start(uptimeMs: Long, inFront: Boolean = false) =
+        BootStartPolicy.shouldStart(deviceUptimeMs = uptimeMs, kioskInFront = inFront)
+
+    @Test
+    fun `boot window is the literal 5 minutes`() {
+        assertEquals(300_000L, BootStartPolicy.BOOT_WINDOW_MS)
+        assertEquals(5 * MIN, BootStartPolicy.BOOT_WINDOW_MS)
+    }
+
+    @Test
+    fun `starts at uptime 0, 1 and one millisecond below the window`() {
+        assertTrue(start(0L))
+        assertTrue(start(1L))
+        assertTrue(start(window - 1))
+    }
+
+    @Test
+    fun `does not start at the window, just above it, after 6 h or at the maximum uptime`() {
+        assertFalse(start(window))
+        assertFalse(start(window + 1))
+        assertFalse(start(6 * 60 * MIN))
+        assertFalse(start(Long.MAX_VALUE))
+    }
+
+    @Test
+    fun `negative uptime never starts`() {
+        assertFalse(start(-1L))
+        assertFalse(start(-window))
+        assertFalse(start(Long.MIN_VALUE))
+    }
+
+    @Test
+    fun `shouldStart truth table`() {
+        // (uptime inside the window?, kiosk in front?) -> start?
+        val table = listOf(
+            Triple(true, false, true), // just booted, kiosk not in front -> start
+            Triple(true, true, false), // just booted, already in front -> leave alone
+            Triple(false, false, false), // process-death reconnect, not in front (operator exit) -> stay exited
+            Triple(false, true, false), // process-death reconnect, in front -> leave alone
+        )
+        assertEquals(4, table.size)
+        for ((insideWindow, inFront, expected) in table) {
+            val uptime = if (insideWindow) window / 2 else window * 2
+            assertEquals("insideWindow=$insideWindow inFront=$inFront", expected, start(uptime, inFront))
+        }
+    }
+
+    @Test
+    fun `kiosk in front blocks the start at every boundary uptime`() {
+        for (uptime in listOf(0L, 1L, window - 1, window, window + 1, Long.MAX_VALUE, -1L)) {
+            assertFalse("uptime=$uptime", start(uptime, inFront = true))
+        }
+    }
+}

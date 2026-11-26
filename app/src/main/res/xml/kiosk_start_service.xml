@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Start-after-boot helper, NOT a screen reader: it registers for no accessibility events, may not read window
+     content and does not touch input, so it only exists to be bound by the system at boot. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/kiosk_start_service_description" />

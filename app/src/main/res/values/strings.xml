@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Signage Kiosk</string>
+    <string name="kiosk_start_service_label">Signage Kiosk - tự mở khi bật TV</string>
+    <string name="kiosk_start_service_description">Chỉ dùng để ứng dụng tự mở lại sau khi bật TV. Dịch vụ này không đọc nội dung màn hình và không theo dõi thao tác nào.</string>
 
     <string name="settings_title">Cài đặt kiosk</string>
     <string name="settings_url">Địa chỉ trang (http:// hoặc https://)</string>
